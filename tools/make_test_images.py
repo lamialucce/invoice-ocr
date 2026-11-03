@@ -40,6 +40,36 @@ def photo(page: np.ndarray) -> np.ndarray:
     return cv2.resize(canvas, (W * 3 // 4, H * 3 // 4), interpolation=cv2.INTER_AREA)
 
 
+def dark(img: np.ndarray) -> np.ndarray:
+    """Taken in a dim room: everything at about a third of the brightness."""
+    return (img.astype(np.float32) * 0.33).astype(np.uint8)
+
+
+def low_contrast(img: np.ndarray) -> np.ndarray:
+    """Grey, washed-out photo: black and white both pushed towards grey."""
+    return (110 + img.astype(np.float32) * (60 / 255)).astype(np.uint8)
+
+
+def faded(img: np.ndarray) -> np.ndarray:
+    """Old thermal paper or a weak printer: the ink is light grey, a bit soft."""
+    out = 255 - (255 - img.astype(np.float32)) * 0.3
+    return cv2.GaussianBlur(out.astype(np.uint8), (3, 3), 0)
+
+
+def upside_down(img: np.ndarray) -> np.ndarray:
+    return cv2.rotate(img, cv2.ROTATE_180)
+
+
+def sideways(img: np.ndarray) -> np.ndarray:
+    return cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+
+
+# Simulated problems for the before/after clean-up comparison. Each one starts
+# from the simulated phone photo.
+PROBLEMS = {"photo": lambda x: x, "dark": dark, "low_contrast": low_contrast,
+            "faded": faded, "sideways": sideways, "upside_down": upside_down}
+
+
 def main(src, out):
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)

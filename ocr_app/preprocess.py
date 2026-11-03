@@ -3,6 +3,7 @@
 Nothing here edits the original. The caller saves the result in processed/
 and records which steps were applied, so a reviewer can compare.
 """
+import os
 import re
 
 import cv2
@@ -11,6 +12,13 @@ import pytesseract
 from PIL import Image
 
 MIN_TEXT_WIDTH = 1800  # below this, small invoice text is too few pixels to read
+
+# Which clean-up to apply, so OCR can be compared before and after:
+#   "off"      - read the image as it is (the "before" in comparisons)
+#   "standard" - crop, rotate, straighten, upscale, even out shadows (default)
+#   "contrast" - standard + stretch contrast when the image is dark, grey or faded
+MODES = ("off", "standard", "contrast")
+MODE = os.environ.get("OCR_PREPROCESS", "standard")
 
 
 def to_cv(img: Image.Image) -> np.ndarray:
@@ -32,14 +40,38 @@ def quality(arr: np.ndarray) -> dict:
     small = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
     sharp = float(cv2.Laplacian(small, cv2.CV_64F).var())
     bright = float(small.mean())
+    # Contrast: distance between dark ink (2nd percentile) and paper (98th).
+    lo, hi = np.percentile(small, [2, 98])
+    contrast = float(hi - lo)
     warnings = []
     if sharp < 60:
         warnings.append("blurry")
     if bright < 70:
         warnings.append("too_dark")
+    if contrast < 120:
+        warnings.append("low_contrast")
     if max(gray.shape) < 1000:
         warnings.append("low_resolution")
-    return {"sharpness": round(sharp, 1), "brightness": round(bright, 1), "warnings": warnings}
+    return {"sharpness": round(sharp, 1), "brightness": round(bright, 1),
+            "contrast": round(contrast, 1), "warnings": warnings}
+
+
+def stretch_contrast(gray: np.ndarray) -> tuple[np.ndarray, bool]:
+    """Make faint ink darker and grey paper whiter, only when needed.
+    It maps the darkest ink to black and the paper to white. It never adds or
+    removes strokes: every pixel keeps its order (darker stays darker), so it
+    cannot create letters that are not in the photo."""
+    lo, hi = np.percentile(gray, [1, 99])
+    paper = float(np.median(gray))
+    if hi - lo >= 170 and paper > 200:
+        return gray, False  # already clear black-on-white
+    if hi - lo < 8:
+        return gray, False  # blank or nearly uniform: nothing to stretch
+    out = np.clip((gray.astype(np.float32) - lo) * 255.0 / (hi - lo), 0, 255)
+    # Faded ink sits close to the paper colour. A gamma below 1 for the dark
+    # side pulls it further from the paper.
+    out = 255.0 * (out / 255.0) ** 1.6
+    return out.astype(np.uint8), True
 
 
 def detect_rotation(arr: np.ndarray) -> int:
@@ -67,7 +99,11 @@ def find_paper(arr: np.ndarray):
     h, w = arr.shape[:2]
     scale = 1000 / max(h, w)
     small = cv2.resize(arr, None, fx=scale, fy=scale)
-    gray = cv2.GaussianBlur(cv2.cvtColor(small, cv2.COLOR_BGR2GRAY), (5, 5), 0)
+    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+    # Stretch to full black-white range first, so the paper edge is found in
+    # grey, washed-out photos too. Used only to find the corners; the crop
+    # itself is taken from the unchanged photo.
+    gray = cv2.GaussianBlur(cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX), (5, 5), 0)
     edges = cv2.dilate(cv2.Canny(gray, 50, 150), np.ones((3, 3), np.uint8))
     cnts, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     for c in sorted(cnts, key=cv2.contourArea, reverse=True)[:5]:
@@ -106,11 +142,17 @@ def deskew(arr: np.ndarray, angle: float) -> np.ndarray:
     return cv2.warpAffine(arr, m, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
 
-def preprocess(img: Image.Image, is_photo: bool) -> tuple[Image.Image, list[str], dict]:
-    """Returns (processed image, list of steps applied, quality info)."""
+def preprocess(img: Image.Image, is_photo: bool, mode: str | None = None) -> tuple[Image.Image, list[str], dict]:
+    """Returns (processed image, list of steps applied, quality info).
+    The input image is never changed; the caller keeps the original."""
+    mode = mode or MODE
+    if mode not in MODES:
+        raise ValueError(f"OCR_PREPROCESS must be one of {MODES}, not {mode!r}")
     arr = to_cv(img)
     steps = []
     q = quality(arr)
+    if mode == "off":
+        return img, steps, q
     if is_photo:
         quad = find_paper(arr)
         if quad is not None:
@@ -134,6 +176,10 @@ def preprocess(img: Image.Image, is_photo: bool) -> tuple[Image.Image, list[str]
         bg = cv2.medianBlur(cv2.dilate(gray, np.ones((7, 7), np.uint8)), 31)
         gray = cv2.normalize(255 - cv2.absdiff(gray, bg), None, 0, 255, cv2.NORM_MINMAX)
         steps.append("shadow_removed")
+    if mode == "contrast":
+        gray, changed = stretch_contrast(gray)
+        if changed:
+            steps.append("contrast_stretched")
     if steps:
         steps.insert(0, "grayscale")
     return to_pil(gray), steps, q
