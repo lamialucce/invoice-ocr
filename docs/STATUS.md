@@ -13,7 +13,7 @@ on real supplier documents.
 | 3. Employee web interface (Hebrew, RTL, phone + computer) | done, not yet tested with real employees or real phone cameras |
 | 4. Training examples: reviewer screen, approval, export, model registry with rollback | done, no real approved examples yet |
 | 5. Fine-tuning + before/after evaluation | not started (Tesseract's `lstmtraining` runs on CPU; needs `tessdata_best` Hebrew and enough approved examples) |
-| 6. Documented JSON for the future RAG component | partly done (review.json export with stable ids); schema doc still to write |
+| 6. Documented hand-off format for the future RAG / matching component | done: [DATA_FORMAT.md](DATA_FORMAT.md), JSON Schema, `/api/handoff`, JSONL/Excel/CSV export, `ProductMatcher` interface. RAG itself is not built (by design). |
 
 ## Synthetic evaluation (stock Tesseract 5.3.4, heb+eng)
 

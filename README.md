@@ -60,7 +60,8 @@ Open `http://<server>:8000` from a computer or a phone on the same network.
 3. The review screen shows the page next to the fields. Click a field to see it on the page.
    Orange = worth checking, red = the math does not add up, dashed = not found.
 4. Fix values, add or delete lines, then "אישור המסמך" (confirm).
-5. After confirming: export to Excel, CSV or JSON.
+5. After confirming: export to Excel, CSV or JSON. The home page also exports all
+   confirmed documents at once (Excel or CSV).
 
 A blurry/dark photo gives a "please retake" message; a missing page ("עמוד 2 מתוך 3")
 gives an "add the missing page" message. Reading a document never updates Bina.
@@ -83,6 +84,25 @@ The reviewer types exactly what is printed and approves it. Statuses are kept ap
 
 Export: button on `/training`, or `training.export_tesstrain()`. It writes `<split>/<id>.png` + `<id>.gt.txt`
 (the tesstrain line format) and `manifest.json`.
+
+## Hand-off to later components (Stage 6)
+
+Product matching, a future RAG component and any Bina import read **one** documented
+format: the "reviewed document" JSON. Field by field description: [docs/DATA_FORMAT.md](docs/DATA_FORMAT.md),
+JSON Schema: [docs/schema/](docs/schema/reviewed-document.v1.schema.json).
+
+```bash
+curl 'http://<server>:8000/api/handoff?status=confirmed&since=2026-11-01'   # confirmed documents
+curl 'http://<server>:8000/api/handoff/<doc_id>'                            # one document
+python -m ocr_app.handoff --data data jsonl confirmed.jsonl                 # one document per line
+python -m ocr_app.handoff --data data excel confirmed.xlsx                  # for employees
+```
+
+Each field keeps the reviewed `value` next to `as_read` (exact OCR text), with its page
+and position. Ids (`doc_id`, `line_id`) are stable. `product_match` is reserved and
+always empty for now. `ProductMatcher` in `ocr_app/handoff.py` is the interface a matcher
+must implement. Nothing here builds embeddings, a vector database or RAG, and nothing
+writes to Bina.
 
 ## Test
 

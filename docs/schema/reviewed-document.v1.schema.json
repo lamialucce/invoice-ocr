@@ -1,0 +1,443 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "invoice-ocr/reviewed-document/1.0",
+ "title": "Reviewed supplier document",
+ "description": "One supplier document after OCR, field extraction and employee review. See docs/DATA_FORMAT.md.",
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "schema",
+  "schema_version",
+  "doc_id",
+  "reading_id",
+  "review",
+  "goods_receipt_confirmed",
+  "model",
+  "source_files",
+  "uploaded_at",
+  "coordinate_space",
+  "pages",
+  "header",
+  "lines",
+  "deleted_line_ids",
+  "warnings",
+  "checks"
+ ],
+ "$defs": {
+  "location": {
+   "oneOf": [
+    {
+     "type": "null"
+    },
+    {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "page",
+      "bbox"
+     ],
+     "properties": {
+      "page": {
+       "type": "integer",
+       "minimum": 1
+      },
+      "bbox": {
+       "type": "array",
+       "items": {
+        "type": "integer"
+       },
+       "minItems": 4,
+       "maxItems": 4,
+       "description": "[x0, y0, x1, y1] in page-image pixels"
+      }
+     }
+    }
+   ]
+  },
+  "value": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "value",
+    "as_read",
+    "read_value",
+    "read_status",
+    "changed_by_reviewer",
+    "location"
+   ],
+   "properties": {
+    "value": {
+     "type": [
+      "number",
+      "string",
+      "null"
+     ],
+     "description": "Reviewed value (what the employee confirmed). null = not on the document."
+    },
+    "as_read": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "Exact text read from the document, before any cleaning."
+    },
+    "read_value": {
+     "type": [
+      "number",
+      "string",
+      "null"
+     ],
+     "description": "Cleaned value from the machine reading, before review."
+    },
+    "read_status": {
+     "enum": [
+      "ok",
+      "missing",
+      "unclear",
+      "check_failed"
+     ]
+    },
+    "changed_by_reviewer": {
+     "type": "boolean"
+    },
+    "location": {
+     "$ref": "#/$defs/location"
+    }
+   }
+  }
+ },
+ "properties": {
+  "schema": {
+   "const": "invoice-ocr/reviewed-document"
+  },
+  "schema_version": {
+   "const": "1.0"
+  },
+  "doc_id": {
+   "type": "string",
+   "minLength": 1
+  },
+  "reading_id": {
+   "type": "string",
+   "description": "Changes when the document is read again (e.g. a page was added). Line ids are stable only within one reading_id."
+  },
+  "review": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "status",
+    "confirmed_by",
+    "confirmed_at",
+    "updated_at",
+    "changes_count"
+   ],
+   "properties": {
+    "status": {
+     "enum": [
+      "not_reviewed",
+      "draft",
+      "confirmed"
+     ]
+    },
+    "confirmed_by": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "confirmed_at": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "updated_at": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "changes_count": {
+     "type": "integer",
+     "minimum": 0
+    }
+   }
+  },
+  "goods_receipt_confirmed": {
+   "const": false,
+   "description": "Always false: reading a document does not prove the goods arrived."
+  },
+  "model": {
+   "type": [
+    "object",
+    "null"
+   ]
+  },
+  "source_files": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "file",
+     "sha256"
+    ],
+    "properties": {
+     "file": {
+      "type": "string"
+     },
+     "sha256": {
+      "type": "string"
+     },
+     "original_filename": {
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    }
+   }
+  },
+  "uploaded_at": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "coordinate_space": {
+   "type": "string"
+  },
+  "pages": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "page",
+     "source_file",
+     "source_page",
+     "read_method",
+     "image",
+     "preprocessing"
+    ],
+    "properties": {
+     "page": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "source_file": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "source_page": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "read_method": {
+      "enum": [
+       "pdf_text",
+       "ocr"
+      ]
+     },
+     "image": {
+      "type": "string"
+     },
+     "preprocessing": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   }
+  },
+  "header": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "supplier_name",
+    "supplier_tax_id",
+    "supplier_number",
+    "document_type",
+    "document_number",
+    "document_date",
+    "currency",
+    "subtotal",
+    "vat",
+    "total"
+   ],
+   "properties": {
+    "supplier_name": {
+     "$ref": "#/$defs/value"
+    },
+    "supplier_tax_id": {
+     "$ref": "#/$defs/value"
+    },
+    "supplier_number": {
+     "$ref": "#/$defs/value"
+    },
+    "document_type": {
+     "$ref": "#/$defs/value"
+    },
+    "document_number": {
+     "$ref": "#/$defs/value"
+    },
+    "document_date": {
+     "$ref": "#/$defs/value"
+    },
+    "currency": {
+     "$ref": "#/$defs/value"
+    },
+    "subtotal": {
+     "$ref": "#/$defs/value"
+    },
+    "vat": {
+     "$ref": "#/$defs/value"
+    },
+    "total": {
+     "$ref": "#/$defs/value"
+    }
+   }
+  },
+  "lines": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "line_id",
+     "position",
+     "page",
+     "row_location",
+     "added_by_reviewer",
+     "fields",
+     "model_codes_in_description",
+     "product_match"
+    ],
+    "properties": {
+     "line_id": {
+      "type": "string"
+     },
+     "position": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "page": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "row_location": {
+      "$ref": "#/$defs/location"
+     },
+     "added_by_reviewer": {
+      "type": "boolean"
+     },
+     "fields": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "line_no",
+       "code",
+       "description",
+       "quantity",
+       "unit",
+       "unit_price",
+       "discount",
+       "line_total"
+      ],
+      "properties": {
+       "line_no": {
+        "$ref": "#/$defs/value"
+       },
+       "code": {
+        "$ref": "#/$defs/value"
+       },
+       "description": {
+        "$ref": "#/$defs/value"
+       },
+       "quantity": {
+        "$ref": "#/$defs/value"
+       },
+       "unit": {
+        "$ref": "#/$defs/value"
+       },
+       "unit_price": {
+        "$ref": "#/$defs/value"
+       },
+       "discount": {
+        "$ref": "#/$defs/value"
+       },
+       "line_total": {
+        "$ref": "#/$defs/value"
+       }
+      }
+     },
+     "model_codes_in_description": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "product_match": {
+      "type": "object",
+      "required": [
+       "status",
+       "bina_item_code",
+       "candidates"
+      ],
+      "description": "Reserved for the later product-matching component. Always not_matched in this version.",
+      "properties": {
+       "status": {
+        "enum": [
+         "not_matched"
+        ]
+       },
+       "bina_item_code": {
+        "type": "null"
+       },
+       "candidates": {
+        "type": "array",
+        "maxItems": 0
+       }
+      }
+     }
+    }
+   }
+  },
+  "deleted_line_ids": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   }
+  },
+  "warnings": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   }
+  },
+  "checks": {
+   "type": "object",
+   "required": [
+    "at_reading",
+    "after_review"
+   ],
+   "properties": {
+    "at_reading": {
+     "type": "array"
+    },
+    "after_review": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   }
+  }
+ }
+}

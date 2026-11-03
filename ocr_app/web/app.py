@@ -5,8 +5,6 @@ Then open http://<server>:8000 on a computer or phone in the same network.
 
 Everything runs on this server. Nothing is sent to outside services.
 """
-import csv
-import io
 import json
 import os
 import queue
@@ -20,7 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .. import models, pages, pipeline, review, training
+from .. import handoff, models, pages, pipeline, review, training
 
 DATA = Path(os.environ.get("OCR_DATA", "data")).resolve()
 PIN = os.environ.get("REVIEWER_PIN", "1234")
@@ -220,40 +218,54 @@ async def api_review(request: Request, doc_id: str):
     return {"ok": True, "status": r["status"], "math_warnings": review.check_reviewed(r)}
 
 
+def _download(content, media, filename):
+    return Response(content, media_type=media, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
 @app.get("/doc/{doc_id}/export.{fmt}")
 def export(doc_id: str, fmt: str):
-    d = doc_dir_of(doc_id)
-    r = review.load(d)
+    """One document. JSON is the documented hand-off format (docs/DATA_FORMAT.md)."""
+    doc = handoff.build(doc_dir_of(doc_id))
     name = f"document_{doc_id}"
     if fmt == "json":
-        return Response(json.dumps(r, ensure_ascii=False, indent=1), media_type="application/json",
-                        headers={"Content-Disposition": f'attachment; filename="{name}.json"'})
-    rows = review.export_rows(r)
+        return _download(json.dumps(doc, ensure_ascii=False, indent=1), "application/json", f"{name}.json")
     if fmt == "csv":
-        buf = io.StringIO()
-        if rows:
-            w = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
-            w.writeheader()
-            w.writerows(rows)
-        # BOM so Excel opens Hebrew correctly
-        return Response("﻿" + buf.getvalue(), media_type="text/csv; charset=utf-8",
-                        headers={"Content-Disposition": f'attachment; filename="{name}.csv"'})
+        return _download(handoff.to_csv(handoff.line_rows(doc)), "text/csv; charset=utf-8", f"{name}.csv")
     if fmt == "xlsx":
-        import xlsxwriter
-        buf = io.BytesIO()
-        wb = xlsxwriter.Workbook(buf, {"in_memory": True})
-        ws = wb.add_worksheet("שורות")
-        ws.right_to_left()
-        if rows:
-            for c, k in enumerate(rows[0].keys()):
-                ws.write(0, c, k)
-            for i, row in enumerate(rows, 1):
-                for c, v in enumerate(row.values()):
-                    ws.write(i, c, v)
-        wb.close()
-        return Response(buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        headers={"Content-Disposition": f'attachment; filename="{name}.xlsx"'})
+        return _download(handoff.excel_for([doc]), XLSX, f"{name}.xlsx")
     raise HTTPException(404)
+
+
+@app.get("/export/confirmed.{fmt}")
+def export_confirmed(fmt: str, since: str | None = None):
+    """All confirmed documents, for employees (Excel/CSV) or other systems (JSONL)."""
+    docs = list(handoff.iter_documents(DATA, "confirmed", since))
+    if fmt == "xlsx":
+        return _download(handoff.excel_for(docs), XLSX, "confirmed_documents.xlsx")
+    if fmt == "csv":
+        rows = [r for d in docs for r in handoff.line_rows(d)]
+        return _download(handoff.to_csv(rows), "text/csv; charset=utf-8", "confirmed_lines.csv")
+    if fmt == "jsonl":
+        body = "".join(json.dumps(d, ensure_ascii=False) + "\n" for d in docs)
+        return _download(body, "application/x-ndjson", "confirmed_documents.jsonl")
+    raise HTTPException(404)
+
+
+@app.get("/api/handoff")
+def api_handoff_list(status: str = "confirmed", since: str | None = None):
+    """Hand-off interface for later components (product matching, RAG).
+    status: confirmed | draft | not_reviewed | any. since: ISO date/time."""
+    docs = list(handoff.iter_documents(DATA, None if status == "any" else status, since))
+    return {"schema": handoff.SCHEMA_NAME, "schema_version": handoff.SCHEMA_VERSION,
+            "count": len(docs), "documents": docs}
+
+
+@app.get("/api/handoff/{doc_id}")
+def api_handoff_one(doc_id: str):
+    return handoff.build(doc_dir_of(doc_id))
 
 
 @app.get("/files/{doc_id}/{sub}/{name}")
