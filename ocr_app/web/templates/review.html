@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}בדיקת מסמך{% endblock %}
+{% block who %}{% if user != "לא ידוע" %}{{ user }}{% endif %}{% endblock %}
+{% block body %}
+<div id="banners"></div>
+<div class="review-layout">
+  <section class="form-pane" aria-label="שדות המסמך">
+    <div class="card">
+      <div class="row-between">
+        <h1>פרטי המסמך</h1>
+        <span id="doc-status" class="chip"></span>
+      </div>
+      <p class="hint">שדות בכתום כדאי לבדוק. לחיצה על שדה מסמנת את המקום שלו בתמונה. "נקרא" מראה מה המערכת קראה מהמסמך.</p>
+      <div id="header-fields" class="fields-grid"></div>
+    </div>
+    <div class="card">
+      <div class="row-between"><h2>שורות מוצרים</h2><span id="lines-count" class="hint"></span></div>
+      <p class="hint">התאמה לפריט בבינה תיעשה בשלב נפרד. כאן בודקים רק שהנתונים נקראו נכון.</p>
+      <div id="lines"></div>
+      <button class="btn" id="add-line" type="button">➕ הוספת שורה שחסרה</button>
+    </div>
+    <div class="card" id="math-card" hidden>
+      <h2>בדיקות חשבון</h2>
+      <ul id="math"></ul>
+    </div>
+  </section>
+  <section class="viewer-pane" aria-label="המסמך">
+    <div class="viewer-tools">
+      <span id="page-tabs"></span>
+      <button class="btn small" type="button" id="zoom-out" aria-label="הקטנה">−</button>
+      <button class="btn small" type="button" id="zoom-in" aria-label="הגדלה">+</button>
+      <label class="small-check"><input type="checkbox" id="show-original"> תמונה מקורית</label>
+    </div>
+    <div class="viewer" id="viewer"><div class="pagebox" id="pagebox"><img id="pageimg" alt="עמוד המסמך"><div class="hl" id="hl"></div></div></div>
+    <form method="post" action="/doc/{{ doc_id }}/add_page" enctype="multipart/form-data" class="add-page">
+      <label class="btn">➕ הוספת עמוד חסר / צילום נוסף
+        <input type="file" name="files" accept="application/pdf,image/*" hidden onchange="if(confirm('להוסיף עמוד ולקרוא את המסמך מחדש? תיקונים שלא אושרו יימחקו.')) this.form.submit()">
+      </label>
+    </form>
+  </section>
+</div>
+<div class="actionbar">
+  <span id="save-msg" class="hint" role="status"></span>
+  <button class="btn" id="save" type="button">שמירה</button>
+  <button class="btn primary" id="confirm" type="button">✔ אישור המסמך</button>
+  <span id="exports" hidden>
+    <a class="btn" href="/doc/{{ doc_id }}/export.xlsx">Excel</a>
+    <a class="btn" href="/doc/{{ doc_id }}/export.csv">CSV</a>
+    <a class="btn" href="/doc/{{ doc_id }}/export.json">JSON</a>
+    <button class="btn" id="reopen" type="button">פתיחה מחדש</button>
+  </span>
+</div>
+<script>window.DOC_ID = {{ doc_id|tojson }}; window.IS_REVIEWER = {{ reviewer|tojson }};</script>
+<script src="/static/review.js"></script>
+{% endblock %}

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}תיקוני קריאה ואימון{% endblock %}
+{% block who %}בודק: {{ user }}{% endblock %}
+{% block body %}
+<section class="card">
+  <h1>מצב האימון</h1>
+  <p class="hint">ארבעה שלבים נפרדים. שמירת תיקון היא עדיין לא אימון, ואימון שהסתיים עדיין לא מפעיל מודל חדש.</p>
+  <ol class="stages">
+    <li><strong>{{ counters.corrections_saved }}</strong> תיקוני טקסט נשמרו <span class="hint">(טקסט שהבודק הקליד ושונה ממה שהמודל קרא)</span></li>
+    <li><strong>{{ counters.approved }}</strong> דוגמאות אושרו לאימון
+      <span class="hint">(אימון {{ counters.approved_by_split.train }} · בקרה {{ counters.approved_by_split.val }} · בדיקה {{ counters.approved_by_split.test }}, חלוקה לפי מסמך)</span></li>
+    {% set trained = registry.models | selectattr("training") | list %}
+    <li><strong>{{ trained | length }}</strong> אימונים הושלמו</li>
+    <li>מודל פעיל: <strong><bdi>{{ registry.active }}</bdi></strong>
+      {% if registry.previous %}<form method="post" action="/models/rollback" class="inline"><button class="btn small">חזרה למודל הקודם (<bdi>{{ registry.previous }}</bdi>)</button></form>{% endif %}</li>
+  </ol>
+  <table class="models">
+    <tr><th>מודל</th><th>מצב</th><th>תוצאות בדיקה</th><th></th></tr>
+    {% for m in registry.models %}
+    <tr><td><bdi>{{ m.id }}</bdi><div class="hint">{{ m.description }}</div></td>
+      <td>{{ {"active": "פעיל", "trained": "אומן, לא נבדק", "evaluated": "נבדק", "retired": "הוצא משימוש"}.get(m.status, m.status) }}</td>
+      <td>{% if m.evaluation %}<bdi>{{ m.evaluation.summary_text or "" }}</bdi>{% else %}—{% endif %}</td>
+      <td>{% if m.id != registry.active and (m.evaluation or m.id == "stock") %}
+        <form method="post" action="/models/{{ m.id }}/activate" class="inline"><button class="btn small">הפעלה</button></form>{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  <button class="btn" id="export">ייצוא דוגמאות מאושרות לאימון (tesstrain)</button> <span id="export-msg" class="hint"></span>
+</section>
+<section class="card">
+  <h2>דוגמאות לבדיקה</h2>
+  <p class="hint">כל דוגמה היא שורת טקסט אחת מתוך מסמך. הקלידו בדיוק מה שכתוב בתמונה, אות באות, גם אם זה שונה משם המוצר בקטלוג. אם התמונה חתוכה או לא קריאה, לחצו "לא שמיש".</p>
+  <nav class="tabs">
+    {% for s, name in [("suggested", "חדשות"), ("corrected", "תוקנו"), ("approved", "אושרו"), ("rejected", "לא שמישות")] %}
+    <a class="btn small {{ 'primary' if status == s else '' }}" href="/training?status={{ s }}{% if doc %}&doc={{ doc }}{% endif %}">{{ name }} ({{ counters[s] }})</a>
+    {% endfor %}
+  </nav>
+  {% if not examples %}<p class="hint">אין דוגמאות כאן. דוגמאות נוצרות כשמסמך מאושר במסך הבדיקה.</p>{% endif %}
+  {% for ex in examples %}
+  <div class="example" data-id="{{ ex.example_id }}">
+    <img src="/training/crop/{{ ex.example_id }}" alt="שורת טקסט מהמסמך" loading="lazy">
+    <div class="ex-meta hint">
+      המודל קרא: <bdi class="pred">{{ ex.predicted_text }}</bdi>
+      {% if ex.suggestion_origin == "pdf_text" %} · הצעה מתוך טקסט ה-PDF{% elif ex.suggestion_origin == "employee_said_written" %} · הצעה מתיקון של עובד{% endif %}
+      · <a href="/doc/{{ ex.doc_id }}">מסמך</a> · עמודה: {{ ex.column or "—" }}
+    </div>
+    {% set val = ex.verified_text if ex.verified_text is not none else ex.suggested_text %}
+    <input dir="{{ 'rtl' if ex.script in ('he', 'mixed') else 'ltr' }}" class="big-input" value="{{ val }}">
+    <div class="ex-buttons">
+      <button class="btn primary" data-act="approve">✔ אישור לאימון</button>
+      <button class="btn" data-act="save">שמירת תיקון</button>
+      <button class="btn" data-act="reject">לא שמיש</button>
+      <span class="hint ex-status"></span>
+    </div>
+  </div>
+  {% endfor %}
+</section>
+<script>
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const box = b.closest('.example');
+  const r = await fetch(`/api/examples/${box.dataset.id}`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: b.dataset.act, text: box.querySelector('input').value})});
+  const res = await r.json();
+  box.querySelector('.ex-status').textContent = res.ok ? ({approved: 'אושר', corrected: 'נשמר', rejected: 'סומן כלא שמיש'}[res.status] || res.status) : res.error;
+  if (res.ok) box.classList.add('done');
+});
+document.getElementById('export').onclick = async () => {
+  const res = await (await fetch('/training/export', {method: 'POST'})).json();
+  document.getElementById('export-msg').textContent = `יוצאו: אימון ${res.counts.train}, בקרה ${res.counts.val}, בדיקה ${res.counts.test}. תיקייה: ${res.folder}`;
+};
+</script>
+{% endblock %}

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block body %}
+<form class="card" method="post" action="/reviewer/login">
+  <h1>מסך בודק מורשה</h1>
+  <p class="hint">כאן מאשרים טקסט מדויק לאימון המודל. נדרש קוד בודק.</p>
+  <label for="pin" class="big-label">קוד בודק</label>
+  <input id="pin" name="pin" type="password" inputmode="numeric" class="big-input" required>
+  <button class="btn primary">כניסה</button>
+</form>
+{% endblock %}

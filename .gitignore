@@ -1,0 +1,12 @@
+data/
+__pycache__/
+*.pyc
+.pytest_cache/
+# Business documents and catalog never go into this repository
+*.pdf
+*.xlsx
+*.jpg
+*.jpeg
+*.heic
+synth/
+eval/

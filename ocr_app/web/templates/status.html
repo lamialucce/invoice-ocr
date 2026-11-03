@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block body %}
+<section class="card center">
+  <h1 id="msg">{{ status.message or "מעבד את המסמך" }}</h1>
+  <div class="progress"><div id="bar"></div></div>
+  <p class="hint" id="sub">זה לוקח בדרך כלל חצי דקה לכל עמוד צילום, ופחות מזה לקובץ PDF.</p>
+  <p id="err" class="error" hidden></p>
+  <a href="/" class="btn">חזרה לרשימה</a>
+</section>
+<script>
+const id = {{ doc_id|tojson }};
+async function poll() {
+  try {
+    const s = await (await fetch(`/api/doc/${id}/status`)).json();
+    document.getElementById('msg').textContent = s.message || 'מעבד את המסמך';
+    const pct = s.total ? Math.round(100 * s.done / s.total) : 10;
+    document.getElementById('bar').style.width = Math.max(pct, 10) + '%';
+    if (s.state === 'ready') { location.reload(); return; }
+    if (s.state === 'error') {
+      const e = document.getElementById('err'); e.hidden = false; e.textContent = s.message; return;
+    }
+  } catch (e) { /* network hiccup: try again */ }
+  setTimeout(poll, 1500);
+}
+poll();
+</script>
+{% endblock %}

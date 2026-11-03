@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}קליטת מסמכי ספקים{% endblock %}</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="top">
+  <a href="/" class="brand">קליטת מסמכי ספקים</a>
+  <span class="who">{% block who %}{% endblock %}</span>
+</header>
+<main>{% block body %}{% endblock %}</main>
+</body>
+</html>

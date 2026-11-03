@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block who %}{% if user != "לא ידוע" %}שלום, {{ user }}{% endif %}{% endblock %}
+{% block body %}
+{% if user == "לא ידוע" %}
+<form class="card" method="post" action="/set_user">
+  <label for="name" class="big-label">מה השם שלך?</label>
+  <p class="hint">השם נשמר ליד כל תיקון שתעשו.</p>
+  <input id="name" name="name" required class="big-input" autocomplete="name">
+  <button class="btn primary">המשך</button>
+</form>
+{% endif %}
+<section class="card">
+  <h1>מסמך חדש</h1>
+  <p class="hint">חשבונית או תעודת משלוח. אפשר PDF או תמונה. מסמך של כמה עמודים: בחרו את כל התמונות יחד.</p>
+  <form method="post" action="/upload" enctype="multipart/form-data" id="upform">
+    <div class="upload-buttons">
+      <label class="btn big primary">📷 צילום מסמך
+        <input type="file" name="files" accept="image/*" capture="environment" hidden onchange="this.form.submit()">
+      </label>
+      <label class="btn big">📄 העלאת קובץ (PDF או תמונה)
+        <input type="file" name="files" accept="application/pdf,image/*,.heic" multiple hidden onchange="this.form.submit()">
+      </label>
+    </div>
+  </form>
+  <p class="hint">טיפים לצילום: הניחו את הדף על משטח כהה, צלמו מלמעלה באור טוב, ושכל הדף ייכנס לתמונה.</p>
+</section>
+<section class="card">
+  <h2>מסמכים אחרונים</h2>
+  {% if not docs %}<p class="hint">עדיין לא הועלו מסמכים.</p>{% endif %}
+  <ul class="doclist">
+  {% for d in docs %}
+    <li><a href="/doc/{{ d.id }}">
+      <span class="docname"><bdi>{{ d.supplier or d.name }}</bdi>{% if d.number %} · מס' <bdi>{{ d.number }}</bdi>{% endif %}</span>
+      <span class="chip s-{{ d.state }} r-{{ d.review }}">
+        {% if d.state in ("queued", "processing") %}בעיבוד{% elif d.state == "error" %}שגיאה
+        {% elif d.review == "confirmed" %}אושר{% elif d.review == "draft" %}בבדיקה{% else %}מחכה לבדיקה{% endif %}
+      </span>
+      <span class="hint">{{ d.uploaded[:16].replace("T", " ") }}</span>
+    </a></li>
+  {% endfor %}
+  </ul>
+</section>
+<p class="footer-links"><a href="/training">מסך בודק: תיקוני קריאה ואימון</a></p>
+{% endblock %}
