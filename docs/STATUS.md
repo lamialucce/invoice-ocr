@@ -28,4 +28,34 @@ Main weakness: OCR of codes and mixed Hebrew/English product descriptions on
 scans and photos. Engine confidence is not a reliable warning: many wrong values
 were not flagged. This is the motivation for fine-tuning (stage 5).
 
+## Image clean-up: before and after (2026-11-03)
+
+`tools/compare_preprocessing.py` reads the same simulated phone photos with
+no clean-up (`OCR_PREPROCESS=off`), the current clean-up (`standard`, the
+default) and an extra contrast stretch (`contrast`). Full table:
+[eval-preprocessing.md](eval-preprocessing.md). 9 synthetic single-page
+documents, 58 product lines; simulated damage, not real photos.
+
+| Photo problem | no clean-up | current clean-up |
+|---|---|---|
+| normal photo | 3/58 | 51/58 |
+| dark | 0/58 | 47/58 |
+| grey / low contrast | 0/58 | 0/58 before the fix below, 47/58 after |
+| faded ink | 0/58 | 45/58 |
+| sideways (90°) | 0/58 | 47/58 |
+| upside down | 0/58 | 37/58 |
+
+(Lines where quantity, price and total all landed on the right product.)
+
+- The clean-up is necessary: without it almost nothing is read.
+- Fixed: on grey, washed-out photos the paper edge was not found, so the page
+  was not cropped. Paper detection now stretches contrast first (detection
+  only; the crop comes from the unchanged photo).
+- The extra contrast stretch did **not** help overall (better on grey photos,
+  worse on faded ink, more wrong values shown as OK). It stays off by default.
+- New `low_contrast` quality warning, shown to the employee.
+- Speed: Tesseract now runs single-threaded per call (`OMP_THREAD_LIMIT=1`).
+  On the 4-core test server one page took 147 s with the default threading
+  and 1.5 s without it.
+
 Re-run: `python tools/synth.py <catalog.xlsx> synth/ && python tools/evaluate.py synth/ eval/ --variants`

@@ -15,7 +15,7 @@ const DOC_TYPES = {invoice: 'חשבונית', invoice_receipt: 'חשבונית �
   credit_note: 'חשבונית זיכוי', purchase_order: 'הזמנה (לא חשבונית)'};
 const STATUS = {not_reviewed: 'מחכה לבדיקה', draft: 'בבדיקה', confirmed: 'אושר'};
 const READ = {ok: '', missing: 'לא נמצא במסמך', unclear: 'כדאי לבדוק', check_failed: 'החשבון לא מסתדר'};
-const QUALITY = {blurry: 'התמונה מטושטשת', too_dark: 'התמונה חשוכה מדי', low_resolution: 'התמונה קטנה מדי'};
+const QUALITY = {blurry: 'התמונה מטושטשת', too_dark: 'התמונה חשוכה מדי', low_resolution: 'התמונה קטנה מדי', low_contrast: 'התמונה דהויה או אפורה'};
 
 let data, page = 1, zoom = 1, dirty = false;
 const $ = (id) => document.getElementById(id);

@@ -14,6 +14,12 @@ from PIL import Image
 
 from .textutil import clean, script_of
 
+# Tesseract's own multi-threading makes it much slower when several reads run
+# at once or the machine has few cores (measured: 147 s vs 1.5 s for one page
+# on a 4-core server). One thread per read is the setting Tesseract's
+# documentation suggests for this case. Set OMP_THREAD_LIMIT to override.
+os.environ.setdefault("OMP_THREAD_LIMIT", "1")
+
 LANG = os.environ.get("OCR_LANG", "heb+eng")
 # Folder with a fine-tuned .traineddata. Empty = the stock models.
 TESSDATA = os.environ.get("OCR_TESSDATA", "")
