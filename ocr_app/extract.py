@@ -11,6 +11,9 @@ Rules:
     check_failed found, but the math does not add up (e.g. qty x price != total)
 - No product matching to the catalog happens here (that is a later stage).
 """
+import csv
+import io
+import json
 import re
 from datetime import date
 
@@ -53,6 +56,82 @@ def field(raw=None, value=None, status=None, page=None, bbox=None, reasons=None)
         status = "ok" if raw not in (None, "") else "missing"
     return {"raw": raw, "value": value, "status": status, "reasons": reasons or [],
             "source": {"page": page, "bbox": bbox} if page else None}
+
+
+def _json_field_value(field_entry):
+    if not isinstance(field_entry, dict):
+        return None
+    if "value" in field_entry:
+        return field_entry.get("value")
+    return field_entry.get("raw")
+
+
+def extract_product_rows(document):
+    """Return only the invoice-table rows needed for downstream work.
+
+    This intentionally ignores all document metadata: header fields, supplier
+    details, totals, warnings and any other top-level keys. Only actual product
+    rows from `lines[*].fields` are exported.
+    """
+    if isinstance(document, (str, bytes)):
+        document = json.loads(document)
+    if not isinstance(document, dict):
+        return []
+
+    lines = document.get("lines", [])
+    if not isinstance(lines, list):
+        return []
+
+    field_keys = ["line_no", "code", "description", "quantity", "unit_price", "discount", "line_total"]
+    rows = []
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        fields = line.get("fields") or {}
+        if not isinstance(fields, dict):
+            continue
+
+        description = _json_field_value(fields.get("description")) or ""
+        description = str(description).strip() if description is not None else ""
+        if not description:
+            continue
+
+        entry = {}
+        for key in field_keys:
+            value = _json_field_value(fields.get(key))
+            if key == "discount" and value is None:
+                value = 0.0
+            entry[key] = value
+        rows.append(entry)
+    return rows
+
+
+def product_rows_to_csv(document, include_header=True):
+    """Convert a reviewed-document JSON to CSV containing only the product rows.
+
+    Output columns are always ordered as:
+    line_no, code, description, quantity, unit_price, discount, line_total
+    """
+    rows = extract_product_rows(document)
+    fieldnames = ["line_no", "code", "description", "quantity", "unit_price", "discount", "line_total"]
+    buf = io.StringIO(newline="")
+    writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
+    if include_header:
+        writer.writeheader()
+    for row in rows:
+        cleaned = {}
+        for key in fieldnames:
+            value = row.get(key)
+            if value is None:
+                cleaned[key] = ""
+            elif isinstance(value, float):
+                cleaned[key] = str(value)
+            elif isinstance(value, (int, str)):
+                cleaned[key] = value
+            else:
+                cleaned[key] = str(value)
+        writer.writerow(cleaned)
+    return buf.getvalue()
 
 
 def _all_lines(pages):

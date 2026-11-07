@@ -42,6 +42,41 @@ def quality(arr: np.ndarray) -> dict:
     return {"sharpness": round(sharp, 1), "brightness": round(bright, 1), "warnings": warnings}
 
 
+def detect_scan_like(arr: np.ndarray) -> bool:
+    """Heuristic for a scanned page: white paper, dark text, crisp lines, low background variation.
+
+    This is a small extra stage before OCR, so a scan-like input can be recognized as a scan even if
+    it is passed in as an image file and not a PDF with embedded text.
+    """
+    gray = cv2.cvtColor(arr, cv2.COLOR_BGR2GRAY) if arr.ndim == 3 else arr
+    if gray.size == 0:
+        return False
+    dark = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+    dark_ratio = float(np.mean(dark > 0))
+    bright = float(gray.mean())
+    sharp = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    # A scanned page is usually mostly white paper with crisp black text on it.
+    # A camera photo often has harsher background variation, less uniform white,
+    # or darker shadows around the sheet.
+    return 0.02 <= dark_ratio <= 0.28 and bright > 120 and sharp > 80
+
+
+def enhance_for_ocr(gray: np.ndarray) -> np.ndarray:
+    """Restore lower-quality scanned or photographed pages before OCR.
+
+    On poor-quality inputs the OCR engine is much more forgiving when contrast is
+    increased, details are sharpened, and the background is normalized.
+    """
+    img = gray.astype(np.float32)
+    img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX)
+    img = cv2.medianBlur(img.astype(np.uint8), 3)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    img = clahe.apply(img.astype(np.uint8))
+    kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]], dtype=np.float32)
+    img = cv2.filter2D(img, -1, kernel)
+    return img
+
+
 def detect_rotation(arr: np.ndarray) -> int:
     """Tesseract's orientation detector: returns 0/90/180/270."""
     try:
@@ -111,6 +146,10 @@ def preprocess(img: Image.Image, is_photo: bool) -> tuple[Image.Image, list[str]
     arr = to_cv(img)
     steps = []
     q = quality(arr)
+    q["scan_like"] = detect_scan_like(arr)
+    q["input_kind"] = "scan_like" if q["scan_like"] else "photo_or_unknown"
+    if q["scan_like"]:
+        steps.append("scan_like_detected")
     if is_photo:
         quad = find_paper(arr)
         if quad is not None:
@@ -134,6 +173,13 @@ def preprocess(img: Image.Image, is_photo: bool) -> tuple[Image.Image, list[str]
         bg = cv2.medianBlur(cv2.dilate(gray, np.ones((7, 7), np.uint8)), 31)
         gray = cv2.normalize(255 - cv2.absdiff(gray, bg), None, 0, 255, cv2.NORM_MINMAX)
         steps.append("shadow_removed")
+    if q.get("scan_like") or any(w in q.get("warnings", []) for w in ("blurry", "too_dark", "low_resolution")):
+        gray = enhance_for_ocr(gray)
+        steps.append("ocr_enhanced")
+        if gray.shape[1] < MIN_TEXT_WIDTH * 1.5:
+            scale = (MIN_TEXT_WIDTH * 1.5) / gray.shape[1]
+            gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+            steps.append(f"upscaled_ocr_x{scale:.2f}")
     if steps:
         steps.insert(0, "grayscale")
     return to_pil(gray), steps, q

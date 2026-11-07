@@ -306,9 +306,19 @@ def training_page(request: Request, status: str = "suggested", doc: str | None =
         return templates.TemplateResponse(request, "login.html", {})
     exs = training.list_examples(DATA, status=status or None, doc_id=doc)[:60]
     reg = models.load(DATA)
+    training_status = getattr(training, "get_training_status", lambda *_: {"state": "idle", "message": "אין עבודה פעילה כרגע"})(DATA)
     return templates.TemplateResponse(request, "training.html", {
         "examples": exs, "status": status, "counters": training.counters(DATA), "registry": reg,
-        "user": user_of(request), "doc": doc})
+        "user": user_of(request), "doc": doc, "training_status": training_status})
+
+
+@app.get("/api/training/status")
+def api_training_status():
+    reg = models.load(DATA)
+    st = training.get_training_status(DATA)
+    st["active_model"] = reg["active"]
+    st["model_count"] = len(reg["models"])
+    return st
 
 
 @app.get("/training/crop/{eid}")

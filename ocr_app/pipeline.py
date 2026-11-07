@@ -190,8 +190,10 @@ def process_dir(doc_dir: Path, progress=None) -> dict:
         (raw_dir / f"page-{info['page']:03d}.txt").write_text("\n".join(l["text"] for l in r["lines"]))
         results.append(r)
     fields = extract.extract_document(doc_dir.name, results)
+    product_rows = extract.extract_product_rows(fields)
     fields["processing_seconds"] = round(time.time() - t0, 1)
     (doc_dir / "fields.json").write_text(json.dumps(fields, ensure_ascii=False, indent=1))
+    (doc_dir / "products.json").write_text(json.dumps(product_rows, ensure_ascii=False, indent=1))
     return fields
 
 

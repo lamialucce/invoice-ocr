@@ -4,6 +4,11 @@
 {% block body %}
 <section class="card">
   <h1>מצב האימון</h1>
+  <div id="training-live-status" class="status-banner" data-state="{{ training_status.state if training_status else 'idle' }}">
+    <strong id="training-live-state">{{ {"idle": "ממתין", "preparing": "מכין", "training": "אימון", "evaluating": "בדיקה", "ready": "מוכן", "error": "שגיאה"}.get((training_status.state if training_status else 'idle'), (training_status.state if training_status else 'idle')) }}</strong>
+    <span id="training-live-message">{{ training_status.message if training_status else 'אין עבודה פעילה כרגע' }}</span>
+    {% if training_status and training_status.model_id %}<span class="hint">מודל: <bdi>{{ training_status.model_id }}</bdi></span>{% endif %}
+  </div>
   <p class="hint">ארבעה שלבים נפרדים. שמירת תיקון היא עדיין לא אימון, ואימון שהסתיים עדיין לא מפעיל מודל חדש.</p>
   <ol class="stages">
     <li><strong>{{ counters.corrections_saved }}</strong> תיקוני טקסט נשמרו <span class="hint">(טקסט שהבודק הקליד ושונה ממה שהמודל קרא)</span></li>
@@ -68,5 +73,31 @@ document.getElementById('export').onclick = async () => {
   const res = await (await fetch('/training/export', {method: 'POST'})).json();
   document.getElementById('export-msg').textContent = `יוצאו: אימון ${res.counts.train}, בקרה ${res.counts.val}, בדיקה ${res.counts.test}. תיקייה: ${res.folder}`;
 };
+
+const trainingStatus = document.getElementById('training-live-status');
+const trainingState = document.getElementById('training-live-state');
+const trainingMessage = document.getElementById('training-live-message');
+const labels = {idle: 'ממתין', preparing: 'מכין', training: 'אימון', evaluating: 'בדיקה', ready: 'מוכן', error: 'שגיאה'};
+
+async function refreshTrainingStatus() {
+  try {
+    const res = await fetch('/api/training/status');
+    const st = await res.json();
+    trainingStatus.dataset.state = st.state || 'idle';
+    trainingState.textContent = labels[st.state] || st.state || 'ממתין';
+    trainingMessage.textContent = st.message || 'אין עבודה פעילה כרגע';
+    if (st.model_id) {
+      const modelTag = document.createElement('span');
+      modelTag.className = 'hint';
+      modelTag.innerHTML = 'מודל: <bdi>' + st.model_id + '</bdi>';
+      const existing = trainingStatus.querySelector('.hint');
+      if (existing) existing.replaceWith(modelTag); else trainingStatus.appendChild(modelTag);
+    }
+  } catch (e) {
+    // ignore transient fetch issues and keep the last known state visible
+  }
+}
+refreshTrainingStatus();
+setInterval(refreshTrainingStatus, 4000);
 </script>
 {% endblock %}
