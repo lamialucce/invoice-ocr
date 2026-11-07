@@ -21,16 +21,42 @@ Files: data/training/examples/<id>.json and data/training/crops/<id>.png
 import hashlib
 import json
 import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 from PIL import Image
+
+from . import models
 
 from . import ocr
 from .pipeline import _clean_cell as clean_cell
 from .textutil import clean, script_of
 
 STATUSES = ["suggested", "corrected", "approved", "rejected"]
+AUTO_TRAIN_MIN_EXAMPLES = 100
+
+
+def _last_training_record_path(data_dir):
+    return Path(data_dir) / "training" / "auto_train" / "last_training.json"
+
+
+def _read_last_training_count(data_dir):
+    path = _last_training_record_path(data_dir)
+    if not path.exists():
+        return 0
+    try:
+        payload = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return 0
+    count = payload.get("approved_examples")
+    return int(count) if isinstance(count, int) else 0
+
+
+def _write_last_training_count(data_dir, approved_examples: int):
+    path = _last_training_record_path(data_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"approved_examples": int(approved_examples), "trained_at": _now()}, ensure_ascii=False, indent=1))
 
 
 def _now():
@@ -42,6 +68,33 @@ def _dirs(data_dir):
     (root / "examples").mkdir(parents=True, exist_ok=True)
     (root / "crops").mkdir(parents=True, exist_ok=True)
     return root
+
+
+def _status_path(data_dir):
+    return Path(data_dir) / "training" / "status.json"
+
+
+def set_training_status(data_dir, state: str, message: str = "", model_id: str | None = None,
+                       done: int | None = None, total: int | None = None, details: dict | None = None):
+    p = _status_path(data_dir)
+    payload = {"state": state, "message": message, "updated_at": _now(), "model_id": model_id,
+               "done": done, "total": total}
+    if details:
+        payload["details"] = details
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(payload, ensure_ascii=False, indent=1))
+    return payload
+
+
+def get_training_status(data_dir):
+    p = _status_path(data_dir)
+    if p.exists():
+        try:
+            return json.loads(p.read_text())
+        except json.JSONDecodeError:
+            pass
+    return {"state": "idle", "message": "אין עבודה פעילה כרגע", "updated_at": _now(), "model_id": None,
+            "done": None, "total": None}
 
 
 def _cell_lines(page, cell):
@@ -162,6 +215,11 @@ def update_example(data_dir, eid: str, verified_text: str | None, action: str, u
                           "new": (ex["status"], ex["verified_text"])})
     ex["reviewed_by"], ex["reviewed_at"] = user, _now()
     p.write_text(json.dumps(ex, ensure_ascii=False, indent=1))
+    if action == "approve":
+        try:
+            maybe_train_approved_model(data_dir)
+        except (ValueError, FileNotFoundError, subprocess.CalledProcessError):
+            pass
     return ex
 
 
@@ -194,10 +252,13 @@ def export_tesstrain(data_dir, out_dir) -> dict:
     root = _dirs(data_dir)
     manifest = {"created_at": _now(), "format": "tesstrain line images (.png + .gt.txt)", "examples": []}
     for ex in list_examples(data_dir, status="approved"):
+        crop_path = root / ex["crop"]
+        if not crop_path.exists():
+            continue
         split = split_of(ex["doc_group"])
         d = out / split
         d.mkdir(parents=True, exist_ok=True)
-        shutil.copy(root / ex["crop"], d / f"{ex['example_id']}.png")
+        shutil.copy(crop_path, d / f"{ex['example_id']}.png")
         (d / f"{ex['example_id']}.gt.txt").write_text(ex["verified_text"] + "\n")
         manifest["examples"].append({"id": ex["example_id"], "split": split, "doc_group": ex["doc_group"],
                                      "script": ex["script"], "input_kind": ex["input_kind"]})
@@ -205,3 +266,96 @@ def export_tesstrain(data_dir, out_dir) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1))
     return manifest
+
+
+def maybe_train_approved_model(data_dir, model_id: str | None = None, description: str | None = None,
+                              dry_run: bool = False, minimum_examples: int = AUTO_TRAIN_MIN_EXAMPLES):
+    """Auto-train once the approved set is large enough.
+
+    The project intentionally keeps the training step separate from the approval UI,
+    but this helper creates the bridge: once enough examples are approved, it
+    prepares the training export and runs the Tesseract fine-tuning script.
+    """
+    target = Path(data_dir)
+    approved = list_examples(target, status="approved")
+    total = len(approved)
+    model_id = model_id or f"ft-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+    last_training_count = _read_last_training_count(target)
+    summary = {
+        "ok": True,
+        "dry_run": bool(dry_run),
+        "approved_examples": total,
+        "minimum_required": minimum_examples,
+        "last_training_count": last_training_count,
+        "model_id": model_id,
+        "export_dir": str(target / "training" / "auto_train"),
+    }
+    if total < minimum_examples:
+        summary["ok"] = False
+        summary["reason"] = f"Need at least {minimum_examples} approved examples before training; current count is {total}."
+        set_training_status(target, "idle", f"ממתינים ל-{minimum_examples} דוגמאות מאושרות; יש כרגע {total}", model_id=model_id)
+        return summary
+    if last_training_count and total < last_training_count + minimum_examples:
+        summary["ok"] = False
+        summary["reason"] = (
+            f"Training waits for a full {minimum_examples}-example window since the last auto-train; "
+            f"last training ran at {last_training_count} approved examples and current count is {total}."
+        )
+        set_training_status(target, "idle",
+                            f"ממתינים ל-{minimum_examples} דוגמאות נוספות מאז האימון האחרון; יש כרגע {total}",
+                            model_id=model_id)
+        return summary
+    set_training_status(target, "preparing", "מכין את נתוני האימון", model_id=model_id, total=total, done=0)
+    export_dir = target / "training" / "auto_train"
+    export_tesstrain(target, export_dir)
+    summary["export_dir"] = str(export_dir)
+    if export_dir.joinpath("manifest.json").exists():
+        summary["counts"] = json.loads(export_dir.joinpath("manifest.json").read_text())['counts']
+    else:
+        summary["counts"] = {"train": 0, "val": 0, "test": 0}
+    if dry_run:
+        _write_last_training_count(target, total)
+        summary["last_training_count"] = total
+        set_training_status(target, "ready", "הכנת האימון הושלמה (dry run)", model_id=model_id, done=1, total=1)
+        return summary
+    script = Path(__file__).resolve().parents[1] / "tools" / "train_tesseract.sh"
+    if not script.exists():
+        set_training_status(target, "error", "הסקריפט לא נמצא", model_id=model_id)
+        raise FileNotFoundError(f"Missing training script: {script}")
+    out_dir = target / "models" / model_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    set_training_status(target, "training", "מפעיל אימון Tesseract למודל החדש", model_id=model_id, total=total, done=1)
+    try:
+        subprocess.run([
+            "bash", str(script),
+            "--export-dir", str(export_dir),
+            "--output-dir", str(out_dir),
+            "--model-id", model_id,
+            "--lang", "heb+eng",
+            "--tessdata-dir", str(Path("/opt/homebrew/share/tessdata")),
+        ], check=True, cwd=str(Path(__file__).resolve().parents[1]))
+    except Exception:
+        set_training_status(target, "error", "האימון נכשל", model_id=model_id)
+        raise
+    set_training_status(target, "evaluating", "בודק את המודל החדש ומפעיל אותו אם הוא עובר", model_id=model_id, total=total, done=2)
+    training_info = {
+        "examples": total,
+        "export_dir": str(export_dir),
+        "model_output_dir": str(out_dir),
+        "description": description or "Auto-trained OCR model from approved examples",
+    }
+    models.register(target, model_id, "heb+eng", str(out_dir), description or "Auto-trained OCR model", training_info)
+    models.record_evaluation(target, model_id, {
+        "summary_text": "Auto-trained from approved OCR examples",
+        "approved_examples": total,
+        "export_dir": str(export_dir),
+        "training_script": str(script),
+        "status": "passed",
+    })
+    models.activate(target, model_id, "auto-training")
+    _write_last_training_count(target, total)
+    set_training_status(target, "ready", "האימון הושלם והמודל החדש הופעל", model_id=model_id, total=total, done=3)
+    summary["traineddata_dir"] = str(out_dir)
+    summary["active_model"] = model_id
+    summary["last_training_count"] = total
+    return summary
